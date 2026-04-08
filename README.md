@@ -682,7 +682,7 @@ filebeat.inputs:
       source: suricata
 ```
 
-This same EVE JSON output is what fed the `suricata` source type in the [Splunk SIEM Analysis project](https://github.com/) — closing the loop between detection and analysis.
+This same EVE JSON output is what fed the `suricata` source type in the [Splunk SIEM Analysis project](https://github.com/jesse12-21/splunk-siem-analysis) — closing the loop between detection and analysis.
 
 ---
 
