@@ -1,0 +1,92 @@
+# =====================================================================
+# Suricata Custom Detection Rules
+# =====================================================================
+# Custom rules for the Suricata IDS portfolio project.
+# All rules use SIDs in the local range (1000000+) to avoid conflicts
+# with community rulesets.
+#
+# Place this file at: /etc/suricata/rules/local.rules
+# Reference it from /etc/suricata/suricata.yaml under rule-files:
+#   - /etc/suricata/rules/local.rules
+# =====================================================================
+
+
+# ---------------------------------------------------------------------
+# WEB APPLICATION ATTACKS
+# ---------------------------------------------------------------------
+
+# SID 1000001 — SQL Injection: UNION SELECT pattern
+alert http $EXTERNAL_NET any -> $HOME_NET any (msg:"LOCAL SQL Injection - UNION SELECT"; flow:established,to_server; http.uri; content:"UNION"; nocase; content:"SELECT"; nocase; distance:0; within:30; classtype:web-application-attack; sid:1000001; rev:1;)
+
+# SID 1000002 — Path Traversal: multiple ../ sequences
+alert http $EXTERNAL_NET any -> $HOME_NET any (msg:"LOCAL Path Traversal Attempt"; flow:established,to_server; http.uri; pcre:"/(\.\.[\/\\]){2,}/"; classtype:web-application-attack; sid:1000002; rev:1;)
+
+# SID 1000003 — XSS: <script tag in URI
+alert http $EXTERNAL_NET any -> $HOME_NET any (msg:"LOCAL XSS Attempt - Script Tag"; flow:established,to_server; http.uri; content:"<script"; nocase; classtype:web-application-attack; sid:1000003; rev:1;)
+
+# SID 1000009 — Local File Inclusion: /etc/passwd
+alert http $EXTERNAL_NET any -> $HOME_NET any (msg:"LOCAL LFI Attempt - /etc/passwd"; flow:established,to_server; http.uri; content:"/etc/passwd"; nocase; classtype:web-application-attack; sid:1000009; rev:1;)
+
+
+# ---------------------------------------------------------------------
+# AUTHENTICATION ATTACKS
+# ---------------------------------------------------------------------
+
+# SID 1000004 — SSH Brute Force (5+ attempts in 60s)
+alert ssh $EXTERNAL_NET any -> $HOME_NET 22 (msg:"LOCAL SSH Brute Force Attempt"; flow:to_server; threshold: type both, track by_src, count 5, seconds 60; classtype:attempted-admin; sid:1000004; rev:1;)
+
+# SID 1000012 — HTTP Basic Auth Brute Force
+alert http $EXTERNAL_NET any -> $HOME_NET any (msg:"LOCAL HTTP Auth Brute Force"; flow:established,to_server; http.header; content:"Authorization|3a 20|Basic"; threshold: type both, track by_src, count 10, seconds 60; classtype:attempted-recon; sid:1000012; rev:1;)
+
+
+# ---------------------------------------------------------------------
+# RECONNAISSANCE / SCANNING
+# ---------------------------------------------------------------------
+
+# SID 1000005 — Suspicious User-Agent (scanner tools)
+alert http $EXTERNAL_NET any -> $HOME_NET any (msg:"LOCAL Suspicious User-Agent - Scanner Tool"; flow:established,to_server; http.user_agent; pcre:"/(nikto|sqlmap|nmap|masscan|wpscan|gobuster|ffuf|burp)/i"; classtype:web-application-activity; sid:1000005; rev:1;)
+
+# SID 1000013 — Excessive 404 Errors (web scanning indicator)
+alert http $HOME_NET any -> $EXTERNAL_NET any (msg:"LOCAL Excessive 404 Responses - Possible Scanning"; flow:established,to_client; http.stat_code; content:"404"; threshold: type both, track by_dst, count 20, seconds 60; classtype:attempted-recon; sid:1000013; rev:1;)
+
+
+# ---------------------------------------------------------------------
+# DNS / C2 INDICATORS
+# ---------------------------------------------------------------------
+
+# SID 1000006 — DNS query to free/abused TLD
+alert dns $HOME_NET any -> any any (msg:"LOCAL Suspicious TLD DNS Query"; dns.query; pcre:"/\.(tk|ml|ga|cf|gq|top|xyz)$/i"; classtype:bad-unknown; sid:1000006; rev:1;)
+
+# SID 1000014 — DNS Query to Known Malicious Domain (uses dataset)
+alert dns $HOME_NET any -> any any (msg:"LOCAL DNS Query to Known Malicious Domain"; dns.query; dataset:isset,malicious_domains,type string,load malicious_domains.txt; classtype:trojan-activity; sid:1000014; rev:1;)
+
+# SID 1000015 — Long DNS query (possible DNS tunneling)
+alert dns $HOME_NET any -> any any (msg:"LOCAL Possible DNS Tunneling - Long Query"; dns.query; pcre:"/^[a-zA-Z0-9]{50,}\./"; classtype:bad-unknown; sid:1000015; rev:1;)
+
+
+# ---------------------------------------------------------------------
+# MALWARE / POST-EXPLOITATION
+# ---------------------------------------------------------------------
+
+# SID 1000007 — Reverse shell pattern: bash -i >&
+alert http $HOME_NET any -> $EXTERNAL_NET any (msg:"LOCAL Possible Reverse Shell - bash -i"; flow:established,to_server; content:"bash -i"; content:">&"; distance:0; within:50; classtype:trojan-activity; sid:1000007; rev:1;)
+
+# SID 1000008 — PowerShell User-Agent (download cradle indicator)
+alert http $HOME_NET any -> $EXTERNAL_NET any (msg:"LOCAL PowerShell Remote Download"; flow:established,to_server; http.user_agent; content:"WindowsPowerShell"; nocase; classtype:trojan-activity; sid:1000008; rev:1;)
+
+# SID 1000016 — Curl/Wget download from external IP (potential malware staging)
+alert http $HOME_NET any -> $EXTERNAL_NET any (msg:"LOCAL CLI Tool Download from External - Possible Staging"; flow:established,to_server; http.user_agent; pcre:"/(curl|wget)\//i"; classtype:policy-violation; sid:1000016; rev:1;)
+
+
+# ---------------------------------------------------------------------
+# THREAT INTELLIGENCE / IOC MATCHING
+# ---------------------------------------------------------------------
+
+# SID 1000010 — Connection to/from known malicious IP (uses dataset)
+# Requires malicious_ips.txt in /var/lib/suricata/datasets/
+# alert ip $EXTERNAL_NET any -> $HOME_NET any (msg:"LOCAL Connection from Known Malicious IP"; iprep:src,malicious,>,50; classtype:bad-unknown; sid:1000010; rev:1;)
+
+
+# =====================================================================
+# End of local.rules
+# =====================================================================

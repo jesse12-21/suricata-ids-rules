@@ -1,0 +1,30 @@
+# PCAP files (often large and may contain sensitive data)
+*.pcap
+*.pcapng
+*.cap
+
+# Suricata logs (can be huge)
+*.log
+eve.json
+fast.log
+stats.log
+output/
+logs/
+
+# IOC exports
+iocs_*.csv
+
+# Threat intel datasets (may be downloaded)
+datasets/*.txt
+datasets/*.netset
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor files
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
