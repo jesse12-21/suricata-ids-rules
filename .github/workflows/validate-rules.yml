@@ -28,16 +28,34 @@ jobs:
           sudo apt-get install -y suricata
           suricata -V
 
+      - name: Verify required files are present in the checkout
+        run: |
+          # A .gitignore rule once excluded datasets/*.txt from commits. The
+          # symptom was a wall of "failed to set up dataset" errors that
+          # looked like broken rules, because the first `cp` failed and the
+          # step aborted before staging anything else. Check explicitly so
+          # the cause is named rather than inferred.
+          missing=0
+          for f in datasets/malicious-domains.txt datasets/pq-browser-ja4.txt \
+                   datasets/offensive-ja4.txt iprep/categories.txt iprep/reputation.list; do
+            if [ ! -f "$f" ]; then
+              echo "::error::$f is missing from the checkout — check .gitignore"
+              missing=1
+            else
+              echo "  present  $f"
+            fi
+          done
+          exit $missing
+
       - name: Stage datasets and reputation files
         run: |
-          # Rules reference these by filename; Suricata resolves them
-          # relative to the dataset and reputation paths.
+          # Suricata resolves dataset `load` filenames against
+          # default-rule-path, set at compile time below.
           sudo mkdir -p /var/lib/suricata/datasets /etc/suricata/iprep
           sudo cp datasets/*.txt /var/lib/suricata/datasets/
           sudo cp iprep/*  /etc/suricata/iprep/
-          # offensive-ja4.txt ships empty by design; create if absent so the
-          # rule referencing it can load.
-          sudo touch /var/lib/suricata/datasets/offensive-ja4.txt
+          echo "--- staged ---"
+          ls -l /var/lib/suricata/datasets/ /etc/suricata/iprep/
 
       - name: Compile ruleset
         run: |

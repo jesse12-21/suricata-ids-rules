@@ -14,9 +14,15 @@ logs/
 # IOC exports
 iocs_*.csv
 
-# Threat intel datasets (may be downloaded)
+# Threat intel datasets — downloaded feeds are not committed.
+# The small seed datasets this repository ships ARE tracked: rules
+# reference them by name, and Suricata fails the ENTIRE ruleset if a
+# dataset file cannot be opened. Excluding them breaks `suricata -T`.
 datasets/*.txt
 datasets/*.netset
+!datasets/malicious-domains.txt
+!datasets/pq-browser-ja4.txt
+!datasets/offensive-ja4.txt
 
 # OS files
 .DS_Store

@@ -165,7 +165,49 @@ This is worth internalising beyond this repository: per finding 1, a dataset fil
 
 ---
 
-## 7. Detection coverage gaps
+## 7. A `.gitignore` rule silently excluded files the ruleset depends on
+
+**Affects:** `datasets/*`, and by cascade `iprep/*`
+**Found:** 2026-07-29 (CI failure, second occurrence)
+**Status:** fixed
+
+The repository's `.gitignore` carried a sensible-looking rule:
+
+```
+# Threat intel datasets (may be downloaded)
+datasets/*.txt
+```
+
+The intent was to avoid committing large downloaded threat feeds. The effect was that the small seed datasets the rules *depend on* were excluded from every commit. They existed locally, so local validation passed; they were absent from the checkout, so CI failed.
+
+The failure presented misleadingly. CI reported:
+
+```
+E: reputation: opening ip rep file /etc/suricata/iprep/categories.txt: No such file or directory
+E: detect-dataset: failed to set up dataset 'malicious-domains'.
+E: detect-dataset: failed to set up dataset 'offensive-ja4'.
+E: detect-iprep: "src,BadHosts,>,50" is not a valid setting for iprep
+```
+
+Four distinct-looking errors across three rule files, pointing at datasets, reputation, and rule syntax. All from one cause: the staging step ran `cp datasets/*.txt` first, the glob matched nothing, `cp` exited non-zero, and bash's `set -e` aborted the step before `cp iprep/*` ever ran. The reputation files were committed correctly and still never reached the runner.
+
+**Fixed** two ways:
+
+- `.gitignore` now negates the shipped seed files explicitly, keeping the exclusion for downloaded feeds:
+  ```
+  datasets/*.txt
+  datasets/*.netset
+  !datasets/malicious-domains.txt
+  !datasets/pq-browser-ja4.txt
+  !datasets/offensive-ja4.txt
+  ```
+- CI gained a **Verify required files are present** step that runs before staging and names any missing file directly, rather than letting the absence surface as downstream rule errors.
+
+The general lesson, and the reason this is recorded rather than quietly patched: **a detection repository has runtime data dependencies, and version control must be configured to know the difference between data that is generated and data that is required.** An ignore rule written for one purpose silently broke another. Local validation could not catch it, because the files were present locally — only a clean checkout exposes it, which is precisely what CI is for.
+
+---
+
+## 8. Detection coverage gaps
 
 Inherent to the detection approach rather than tooling defects. Each is also stated in the relevant rule.
 
