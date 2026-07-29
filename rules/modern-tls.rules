@@ -45,7 +45,7 @@ alert tls $HOME_NET any -> $EXTERNAL_NET any (msg:"LOCAL JA4 Match - Known Offen
 #
 # This means the rule requires environment-specific baselining before it is
 # useful. The shipped dataset contains illustrative values only.
-alert tls $HOME_NET any -> $EXTERNAL_NET any (msg:"LOCAL Browser-Shaped JA4 Not On Post-Quantum Allowlist"; requires: feature ja4; flow:established,to_server; ja4.hash; content:"t13d"; startswith; ja4.hash; dataset:isnotset,pq-browser-ja4,type string,load pq-browser-ja4.txt; reference:url,attack.mitre.org/techniques/T1036/; reference:url,datatracker.ietf.org/doc/html/draft-ietf-tls-ecdhe-mlkem; classtype:bad-unknown; target:src_ip; metadata:attack_target Client_Endpoint, created_at 2026_07_29, updated_at 2026_07_29, deployment Internal, signature_severity Minor, mitre_tactic_id TA0005, mitre_tactic_name Defense_Evasion, mitre_technique_id T1036, mitre_technique_name Masquerading; sid:1000102; rev:1;)
+alert tls $HOME_NET any -> $EXTERNAL_NET any (msg:"LOCAL Browser-Shaped JA4 Not On Post-Quantum Allowlist"; requires: feature ja4; flow:established,to_server; ja4.hash; content:"t13d"; startswith; dataset:isnotset,pq-browser-ja4,type string,load pq-browser-ja4.txt; reference:url,attack.mitre.org/techniques/T1036/; reference:url,datatracker.ietf.org/doc/html/draft-ietf-tls-ecdhe-mlkem; classtype:bad-unknown; target:src_ip; metadata:attack_target Client_Endpoint, created_at 2026_07_29, updated_at 2026_07_29, deployment Internal, signature_severity Minor, mitre_tactic_id TA0005, mitre_tactic_name Defense_Evasion, mitre_technique_id T1036, mitre_technique_name Masquerading; sid:1000102; rev:1;)
 
 
 # ---------------------------------------------------------------------

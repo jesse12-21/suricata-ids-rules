@@ -153,11 +153,14 @@ sudo mkdir -p /etc/suricata/iprep && sudo cp iprep/* /etc/suricata/iprep/
 cat rules/*.rules > /tmp/combined.rules
 
 suricata -T -S /tmp/combined.rules \
+  --set default-rule-path=/var/lib/suricata/datasets \
   --set threshold-file="$PWD/rules/threshold.config" \
   --set reputation-categories-file=/etc/suricata/iprep/categories.txt \
   --set default-reputation-path=/etc/suricata/iprep \
   --set reputation-files.0=reputation.list
 ```
+
+`default-rule-path` is doing unexpected work here: it is what Suricata resolves dataset `load` filenames against, **not** the conventional `/var/lib/suricata/datasets` location. Omit it and the ruleset fails to load. See [`docs/known-limitations.md`](docs/known-limitations.md).
 
 On Suricata 7.x the modern rules report as skipped rather than failing — that is the `requires:` gating working as intended.
 

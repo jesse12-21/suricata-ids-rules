@@ -134,7 +134,38 @@ These are warnings, not errors, and they disappear when the full ruleset is load
 
 ---
 
-## 6. Detection coverage gaps
+## 6. Dataset `load` paths resolve against `default-rule-path`
+
+**Affects:** any rule using `dataset:...load`; CI and deployment instructions
+**Found:** 2026-07-29 (surfaced by a CI failure)
+**Status:** fixed
+
+Copying dataset files to `/var/lib/suricata/datasets/` — the conventional location, and the one most documentation implies — is **not** sufficient. Suricata resolves a bare `load` filename against `default-rule-path`, and falls back to the current working directory. It does not search the datasets directory.
+
+Reproduced by running from a directory that does not contain the files, with the files correctly present in `/var/lib/suricata/datasets/`:
+
+```console
+$ suricata -T -S combined.rules
+E: datasets: fopen 'malicious-domains.txt' failed: No such file or directory
+E: detect-dataset: failed to set up dataset 'malicious-domains'.
+E: detect: error parsing signature "... dataset:isset,malicious-domains,... " at line 84
+```
+
+Three resolutions were tested. Two work:
+
+| Approach | Result |
+|---|---|
+| `--set default-rule-path=/var/lib/suricata/datasets` | works |
+| Run Suricata with the dataset directory as the working directory | works |
+| `--data-dir=/var/lib/suricata` | **fails** |
+
+The first is used in CI and in the README validation instructions, because it does not depend on the working directory.
+
+This is worth internalising beyond this repository: per finding 1, a dataset file Suricata cannot open fails the **entire ruleset**, not the one rule referencing it. A path assumption is therefore a whole-ruleset outage.
+
+---
+
+## 7. Detection coverage gaps
 
 Inherent to the detection approach rather than tooling defects. Each is also stated in the relevant rule.
 

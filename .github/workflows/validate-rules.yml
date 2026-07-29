@@ -41,18 +41,36 @@ jobs:
 
       - name: Compile ruleset
         run: |
+          set -o pipefail
           cat rules/local.rules rules/modern-tls.rules rules/dns-tunneling.rules > /tmp/combined.rules
+          # default-rule-path is what Suricata resolves dataset `load` paths
+          # against — NOT the conventional /var/lib/suricata/datasets location.
+          # See docs/known-limitations.md finding 6.
           sudo suricata -T -S /tmp/combined.rules \
+            --set default-rule-path=/var/lib/suricata/datasets \
             --set threshold-file="$PWD/rules/threshold.config" \
             --set reputation-categories-file=/etc/suricata/iprep/categories.txt \
             --set default-reputation-path=/etc/suricata/iprep \
             --set reputation-files.0=reputation.list \
             --set datasets.defaults.memcap=32mb \
             -l /tmp 2>&1 | tee /tmp/out.txt
-          if grep -qiE '^E:|error' /tmp/out.txt; then
-            echo "::error::Suricata reported errors loading the ruleset"
-            exit 1
-          fi
+
+      - name: Isolate the failing file
+        if: failure()
+        run: |
+          # The combined run reports the offending line against the merged
+          # file, which is awkward to trace back. On failure, compile each
+          # file alone so the log names the real source.
+          for f in rules/*.rules; do
+            echo "::group::$f"
+            sudo suricata -T -S "$f" \
+              --set default-rule-path=/var/lib/suricata/datasets \
+              --set reputation-categories-file=/etc/suricata/iprep/categories.txt \
+              --set default-reputation-path=/etc/suricata/iprep \
+              --set reputation-files.0=reputation.list \
+              -l /tmp 2>&1 | grep -E '^(E|W):' || echo "  clean"
+            echo "::endgroup::"
+          done
 
       - name: Report gated rules
         run: |
