@@ -54,8 +54,11 @@ jobs:
           sudo mkdir -p /var/lib/suricata/datasets /etc/suricata/iprep
           sudo cp datasets/*.txt /var/lib/suricata/datasets/
           sudo cp iprep/*  /etc/suricata/iprep/
+          # sudo is required to list these: the OISF package creates
+          # /var/lib/suricata root-owned and not world-readable, so a bare
+          # `ls` exits 2 and takes the step down with it under `set -e`.
           echo "--- staged ---"
-          ls -l /var/lib/suricata/datasets/ /etc/suricata/iprep/
+          sudo ls -l /var/lib/suricata/datasets/ /etc/suricata/iprep/
 
       - name: Compile ruleset
         run: |
