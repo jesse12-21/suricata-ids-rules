@@ -1,0 +1,52 @@
+# =====================================================================
+# DNS Tunneling Detection — Entropy-Based (Suricata 8)
+# =====================================================================
+# SID range: 1000200-1000299
+#
+# rules/local.rules SID 1000015 detects DNS tunneling by query-label
+# LENGTH. Length is a proxy for what actually distinguishes tunneled data
+# from a legitimate hostname: randomness. A 60-character hostname belonging
+# to a CDN is long but low-entropy; a base32-encoded payload chunk of the
+# same length is near-maximum entropy.
+#
+# Suricata 8 added the `entropy` keyword, which computes Shannon entropy on
+# a sticky buffer and yields a value between 0 and 8. These rules use it
+# directly. SID 1000015 is retained in local.rules for 7.x sensors.
+#
+# All rules here require Suricata 8 and are skipped cleanly on older builds.
+#
+# Validation:  suricata -T -S rules/dns-tunneling.rules
+# Tuning:      see docs/tuning-guide.md — entropy thresholds are the single
+#              most environment-sensitive parameter in this repository.
+# =====================================================================
+
+
+# SID 1000201 — High-entropy DNS query name
+#
+# Threshold rationale: English-like hostnames typically land between 2.5
+# and 3.5. Base32/base64-encoded payloads land above 4.0. The 3.8 default
+# sits deliberately between them and WILL produce false positives on CDN
+# and cloud-provider hostnames, which are machine-generated and random-
+# looking by design. Baseline before enabling — see the tuning guide.
+alert dns $HOME_NET any -> any any (msg:"LOCAL High-Entropy DNS Query - Possible Tunneling"; requires: version >= 8.0; dns.query; entropy: value > 3.8; reference:url,attack.mitre.org/techniques/T1048/003/; classtype:bad-unknown; target:src_ip; metadata:attack_target Client_Endpoint, created_at 2026_07_29, updated_at 2026_07_29, deployment Internal, signature_severity Minor, mitre_tactic_id TA0010, mitre_tactic_name Exfiltration, mitre_technique_id T1048_003, mitre_technique_name Exfiltration_Over_Unencrypted_Non_C2_Protocol; sid:1000201; rev:1;)
+
+# SID 1000202 — High-entropy TXT-record query
+#
+# Materially higher confidence than SID 1000201 alone. TXT records carry
+# larger payloads than A or AAAA and are the preferred carrier for tunneling
+# tools such as iodine and dnscat2. A high-entropy query name combined with
+# a TXT record type has few benign explanations outside DKIM and DMARC
+# lookups, which originate from mail infrastructure rather than endpoints.
+alert dns $HOME_NET any -> any any (msg:"LOCAL High-Entropy DNS TXT Query - Probable Tunneling"; requires: version >= 8.0; dns.rrtype:16; dns.query; entropy: value > 3.8; reference:url,attack.mitre.org/techniques/T1071/004/; reference:url,attack.mitre.org/techniques/T1048/003/; classtype:trojan-activity; target:src_ip; metadata:attack_target Client_Endpoint, created_at 2026_07_29, updated_at 2026_07_29, deployment Internal, signature_severity Major, mitre_tactic_id TA0011, mitre_tactic_name Command_And_Control, mitre_technique_id T1071_004, mitre_technique_name Application_Layer_Protocol_DNS; sid:1000202; rev:1;)
+
+# SID 1000203 — Sustained high-entropy DNS from a single host
+#
+# Volume converts a per-query heuristic into a channel-level verdict. One
+# high-entropy query is noise; forty in five minutes from one host is a
+# tunnel. Threshold is defined in rules/threshold.config.
+alert dns $HOME_NET any -> any any (msg:"LOCAL Sustained High-Entropy DNS Queries - Active Tunnel"; requires: version >= 8.0; dns.query; entropy: value > 4.2; reference:url,attack.mitre.org/techniques/T1048/003/; classtype:trojan-activity; target:src_ip; metadata:attack_target Client_Endpoint, created_at 2026_07_29, updated_at 2026_07_29, deployment Internal, signature_severity Critical, mitre_tactic_id TA0010, mitre_tactic_name Exfiltration, mitre_technique_id T1048_003, mitre_technique_name Exfiltration_Over_Unencrypted_Non_C2_Protocol; sid:1000203; rev:1;)
+
+
+# =====================================================================
+# End of dns-tunneling.rules
+# =====================================================================

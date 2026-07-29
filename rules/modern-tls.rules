@@ -1,0 +1,95 @@
+# =====================================================================
+# Modern TLS Detections — JA4, Encrypted Client Hello, Post-Quantum
+# =====================================================================
+# SID range: 1000100-1000199
+#
+# These rules cover TLS behaviour that emerged after the original ruleset
+# was written. They are the Suricata implementation of detections first
+# prototyped at the packet level in the companion Wireshark project:
+#   https://github.com/jesse12-21/wireshark-threat-detection
+#
+# Version gating: rules using Suricata 8 keywords carry
+# `requires: version >= 8.0;` and JA4 rules carry `requires: feature ja4;`.
+# A gated rule is SKIPPED rather than erroring on a sensor that lacks the
+# capability, so this file loads cleanly on 7.x and on distro builds
+# compiled without JA4. See docs/known-limitations.md — the Ubuntu 24.04
+# packaged Suricata is one such build.
+#
+# Validation:  suricata -T -S rules/modern-tls.rules
+# =====================================================================
+
+
+# ---------------------------------------------------------------------
+# JA4 CLIENT FINGERPRINTING
+# ---------------------------------------------------------------------
+
+# SID 1000101 — TLS client fingerprint on the known-offensive-tooling list
+# Populate datasets/offensive-ja4.txt from the FoxIO JA4+ database or your
+# own threat intel. Shipped empty by design: a fingerprint blocklist is
+# environment-specific and a stale one is worse than none.
+alert tls $HOME_NET any -> $EXTERNAL_NET any (msg:"LOCAL JA4 Match - Known Offensive Tooling Fingerprint"; requires: feature ja4; flow:established,to_server; ja4.hash; dataset:isset,offensive-ja4,type string,load offensive-ja4.txt; reference:url,ja4db.com; reference:url,attack.mitre.org/techniques/T1573/002/; classtype:trojan-activity; target:src_ip; metadata:attack_target Client_Endpoint, created_at 2026_07_29, updated_at 2026_07_29, deployment Internal, signature_severity Critical, mitre_tactic_id TA0011, mitre_tactic_name Command_And_Control, mitre_technique_id T1573_002, mitre_technique_name Encrypted_Channel_Asymmetric_Cryptography; sid:1000101; rev:1;)
+
+# SID 1000102 — Browser-shaped JA4 absent from the post-quantum allowlist
+#
+# Rationale, and an honest note on implementation. Hybrid post-quantum key
+# agreement (X25519MLKEM768, IANA 4588) is now default in mainstream
+# browsers, while malware TLS stacks built on older static OpenSSL cannot
+# offer it. A client whose fingerprint claims a browser but which lacks PQ
+# capability is presenting a contradiction.
+#
+# Suricata exposes no keyword for the supported_groups extension directly,
+# so this cannot be expressed as "offered group != 4588". It is instead
+# expressed as an allowlist: JA4 hashes observed from known-good PQ-capable
+# browsers in this environment go in datasets/pq-browser-ja4.txt, and a
+# t13d-prefixed fingerprint absent from that list is flagged.
+#
+# This means the rule requires environment-specific baselining before it is
+# useful. The shipped dataset contains illustrative values only.
+alert tls $HOME_NET any -> $EXTERNAL_NET any (msg:"LOCAL Browser-Shaped JA4 Not On Post-Quantum Allowlist"; requires: feature ja4; flow:established,to_server; ja4.hash; content:"t13d"; startswith; ja4.hash; dataset:isnotset,pq-browser-ja4,type string,load pq-browser-ja4.txt; reference:url,attack.mitre.org/techniques/T1036/; reference:url,datatracker.ietf.org/doc/html/draft-ietf-tls-ecdhe-mlkem; classtype:bad-unknown; target:src_ip; metadata:attack_target Client_Endpoint, created_at 2026_07_29, updated_at 2026_07_29, deployment Internal, signature_severity Minor, mitre_tactic_id TA0005, mitre_tactic_name Defense_Evasion, mitre_technique_id T1036, mitre_technique_name Masquerading; sid:1000102; rev:1;)
+
+
+# ---------------------------------------------------------------------
+# ENCRYPTED CLIENT HELLO
+# ---------------------------------------------------------------------
+
+# SID 1000103 — TLS Client Hello with no SNI to an external destination
+#
+# Scope note, carried over from the companion project: this detection is
+# weakening. Under ECH the visible ClientHelloOuter carries a generic cover
+# name, so a missing SNI no longer implies evasion — and GREASE ECH means
+# ECH-shaped extensions appear on nearly every browser handshake. Retained
+# because it still catches implants connecting to a hardcoded IP with no
+# ECH involvement at all, which remains common in commodity malware.
+# Severity is deliberately Informational, not Major.
+alert tls $HOME_NET any -> $EXTERNAL_NET any (msg:"LOCAL TLS Client Hello Without SNI to External Host"; requires: version >= 8.0; flow:established,to_server; tls.sni; absent; reference:url,attack.mitre.org/techniques/T1573/002/; reference:url,github.com/jesse12-21/wireshark-threat-detection/blob/main/docs/refreshes/2026-07.md; classtype:bad-unknown; target:src_ip; metadata:attack_target Client_Endpoint, created_at 2026_07_29, updated_at 2026_07_29, deployment Internal, signature_severity Informational, mitre_tactic_id TA0011, mitre_tactic_name Command_And_Control, mitre_technique_id T1573_002, mitre_technique_name Encrypted_Channel_Asymmetric_Cryptography; sid:1000103; rev:1;)
+
+# SID 1000104 — HELPER: record that a host performed a DNS HTTPS-RR lookup
+#
+# Sets a cross-flow xbit rather than alerting. A conforming ECH client must
+# fetch the server's ECHConfig from the HTTPS resource record (DNS type 65,
+# RFC 9460) before it can encrypt a ClientHelloInner. This rule records that
+# the lookup happened; SID 1000105 alerts when it did not.
+#
+# The 300s expiry should be tuned to the environment's DNS TTL profile.
+alert dns $HOME_NET any -> any any (msg:"LOCAL HELPER DNS HTTPS-RR Lookup Observed"; requires: version >= 8.0; dns.rrtype:65; xbits:set,ech_config_fetched,track ip_src,expire 300; noalert; reference:url,rfc-editor.org/rfc/rfc9460.html; classtype:not-suspicious; sid:1000104; rev:1;)
+
+# SID 1000105 — ECH-fronted TLS session with no preceding HTTPS-RR lookup
+#
+# The Suricata implementation of the detection developed in the companion
+# Wireshark project. A client reaching an ECH provider's public name without
+# having fetched an ECHConfig from DNS is operating from a hardcoded or
+# out-of-band config. No mainstream browser does this; an implant with an
+# embedded ECHConfig does exactly this.
+#
+# Known limitations, stated rather than discovered later:
+#   - DoH/DoQ hides the HTTPS-RR lookup entirely, so this rule is blind on
+#     hosts using encrypted DNS. It requires resolver-log correlation there.
+#   - DNS caching can place the lookup outside the 300s xbit window.
+#   - The public-name list below covers the major ECH providers and will
+#     need extending as adoption spreads.
+alert tls $HOME_NET any -> $EXTERNAL_NET any (msg:"LOCAL ECH Session Without Preceding DNS HTTPS-RR Lookup"; requires: version >= 8.0; flow:established,to_server; tls.sni; pcre:"/(cloudflare-ech\.com|ech\.local)$/i"; xbits:isnotset,ech_config_fetched,track ip_src; reference:url,attack.mitre.org/techniques/T1090/004/; reference:url,datatracker.ietf.org/doc/html/draft-ietf-tls-esni; classtype:trojan-activity; target:src_ip; metadata:attack_target Client_Endpoint, created_at 2026_07_29, updated_at 2026_07_29, deployment Internal, signature_severity Major, mitre_tactic_id TA0011, mitre_tactic_name Command_And_Control, mitre_technique_id T1090_004, mitre_technique_name Proxy_Domain_Fronting; sid:1000105; rev:1;)
+
+
+# =====================================================================
+# End of modern-tls.rules
+# =====================================================================

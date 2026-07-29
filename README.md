@@ -4,18 +4,19 @@
 
 ### Writing Custom Detection Rules and Hunting Threats in Real Network Traffic
 
-[![Suricata](https://img.shields.io/badge/Suricata_8.0.4-EF3B2D?style=for-the-badge&logo=argo&logoColor=white)](https://suricata.io/)
+[![Suricata](https://img.shields.io/badge/Suricata_8.0.5-EF3B2D?style=for-the-badge&logo=argo&logoColor=white)](https://suricata.io/)
 [![Ubuntu](https://img.shields.io/badge/Ubuntu_24.04-E95420?style=for-the-badge&logo=ubuntu&logoColor=white)](https://ubuntu.com/)
 [![Rules](https://img.shields.io/badge/Detection_Rules-Custom_+_ET_Open-4EAA25?style=for-the-badge&logo=gnu-bash&logoColor=white)](https://rules.emergingthreats.net/)
-[![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)](LICENSE)
+[![MITRE ATT&CK](https://img.shields.io/badge/MITRE_ATT%26CK-Mapped-red?style=for-the-badge)](https://attack.mitre.org/)
+[![Validate Rules](https://img.shields.io/github/actions/workflow/status/jesse12-21/suricata-ids-rules/validate-rules.yml?branch=main&style=for-the-badge&label=Rules%20CI)](../../actions/workflows/validate-rules.yml)
 
 <br>
 
-*A hands-on cybersecurity project demonstrating Network Intrusion Detection System (NIDS) operations — from Suricata installation and configuration to writing custom detection rules, analyzing real attack PCAPs, integrating threat intelligence, and building automated alert pipelines.*
+*A hands-on cybersecurity project demonstrating Network Intrusion Detection System (NIDS) operations — from Suricata installation through writing and tuning custom detection rules, into modern encrypted-traffic detection (JA4, Encrypted Client Hello, post-quantum TLS), IPS deployment, and a detection-as-code pipeline where every rule is compiled by the engine itself in CI.*
 
 <br>
 
-[Setup](#part-1---suricata-installation--configuration) · [Rule Anatomy](#part-2---suricata-rule-anatomy) · [Custom Rules](#part-3---writing-custom-detection-rules) · [PCAP Analysis](#part-4---analyzing-real-attack-traffic) · [Threat Intel](#part-5---integrating-threat-intelligence) · [Automation](#part-6---alert-processing--automation)
+[Setup](#part-1---suricata-installation--configuration) · [Rule Anatomy](#part-2---suricata-rule-anatomy) · [Custom Rules](#part-3---writing-custom-detection-rules) · [PCAP Analysis](#part-4---analyzing-real-attack-traffic) · [Threat Intel](#part-5---integrating-threat-intelligence) · [Automation](#part-6---alert-processing--automation) · [Modern TLS](#part-7---modern-tls-detections-ja4-ech-post-quantum) · [IDS→IPS](#part-8---from-ids-to-ips) · [Detection-as-Code](#part-9---detection-as-code)
 
 </div>
 
@@ -35,6 +36,10 @@ A Network Intrusion Detection System (NIDS) sits at the network perimeter inspec
 | **PCAP Analysis** | Running Suricata against captured attack traffic | `suricata -r`, EVE JSON output |
 | **Threat Intelligence** | Integrating IP and domain blocklists into detection | Datasets, IP reputation, IOC matching |
 | **Alert Automation** | Parsing and triaging alerts with `jq` and bash | EVE JSON, scripted analysis |
+| **Modern TLS Detection** | JA4 fingerprinting, Encrypted Client Hello, post-quantum capability | `ja4.hash`, `absent`, `xbits`, `entropy` |
+| **Rule Tuning** | False-positive analysis, thresholds, suppressions | `threshold.config`, phased deployment |
+| **IPS Operations** | Inline deployment and drop-safety assessment | NFQUEUE, af-packet inline |
+| **Detection-as-Code** | Engine-validated rules in CI, structured metadata | GitHub Actions, `suricata -T` |
 
 ---
 
@@ -70,11 +75,91 @@ The lab runs Suricata on Ubuntu 24.04 inside VirtualBox, analyzing both live tra
 
 | Component | Purpose |
 |---|---|
-| **Suricata 8.0.4** | Network intrusion detection engine |
+| **Suricata 8.0.5** | Network intrusion detection engine |
 | **ET Open Ruleset** | Community-maintained detection rules from Proofpoint |
 | **Custom Rules** | Hand-written rules for specific attack patterns |
 | **EVE JSON Output** | Structured alert format for SIEM integration |
 | **Sample PCAPs** | Real attack traffic for rule testing |
+
+### 🎯 Detection Coverage — MITRE ATT&CK Mapping
+
+Every rule carries its ATT&CK technique in structured `metadata:`, so coverage can be measured programmatically rather than read off a table. CI enforces that no rule merges without it.
+
+| Adversary Technique | ATT&CK ID | Tactic | Rules |
+|---|---|---|---|
+| **Exploit Public-Facing Application** | [T1190](https://attack.mitre.org/techniques/T1190/) | Initial Access | 1000001, 1000002, 1000003 |
+| **File and Directory Discovery** | [T1083](https://attack.mitre.org/techniques/T1083/) | Discovery | 1000009 |
+| **Brute Force: Password Guessing** | [T1110.001](https://attack.mitre.org/techniques/T1110/001/) | Credential Access | 1000004, 1000012 |
+| **Active Scanning: Vulnerability Scanning** | [T1595.002](https://attack.mitre.org/techniques/T1595/002/) | Reconnaissance | 1000005 |
+| **Active Scanning: Wordlist Scanning** | [T1595.003](https://attack.mitre.org/techniques/T1595/003/) | Reconnaissance | 1000013 |
+| **Application Layer Protocol: DNS** | [T1071.004](https://attack.mitre.org/techniques/T1071/004/) | Command and Control | 1000006, 1000014, 1000202 |
+| **Exfiltration Over Unencrypted Non-C2 Protocol** | [T1048.003](https://attack.mitre.org/techniques/T1048/003/) | Exfiltration | 1000015, 1000201, 1000203 |
+| **Command and Scripting Interpreter: Unix Shell** | [T1059.004](https://attack.mitre.org/techniques/T1059/004/) | Execution | 1000007 |
+| **Command and Scripting Interpreter: PowerShell** | [T1059.001](https://attack.mitre.org/techniques/T1059/001/) | Execution | 1000008 |
+| **Ingress Tool Transfer** | [T1105](https://attack.mitre.org/techniques/T1105/) | Command and Control | 1000016 |
+| **Application Layer Protocol** | [T1071](https://attack.mitre.org/techniques/T1071/) | Command and Control | 1000010 |
+| **Encrypted Channel: Asymmetric Cryptography** | [T1573.002](https://attack.mitre.org/techniques/T1573/002/) | Command and Control | 1000101, 1000103 |
+| **Masquerading** | [T1036](https://attack.mitre.org/techniques/T1036/) | Defense Evasion | 1000102 |
+| **Proxy: Domain Fronting** | [T1090.004](https://attack.mitre.org/techniques/T1090/004/) | Command and Control | 1000105 |
+
+### 📂 Repository Structure
+
+<div align="center">
+<img src="assets/repo-structure.png" alt="Repository structure diagram. Left panel lists the file tree: README, LICENSE, .github/workflows, assets, rules, datasets, iprep, scripts, and docs, with files added in the July 2026 refresh highlighted in green and the revised local.rules in amber. Right panel describes each file's purpose." width="900">
+</div>
+
+<br>
+
+<details>
+<summary><strong>Text version (click to expand)</strong></summary>
+
+```
+.
+├── README.md                                  ← You are here
+├── LICENSE
+├── .github/workflows/
+│   └── validate-rules.yml                     ← CI: compiles the ruleset with the Suricata engine
+├── assets/                                    ← Screenshots referenced in this README
+├── rules/
+│   ├── local.rules                            ← 15 rules — web, auth, recon, DNS, malware, iprep
+│   ├── modern-tls.rules                       ← 5 rules — JA4, ECH, post-quantum (Suricata 8)
+│   ├── dns-tunneling.rules                    ← 3 rules — entropy-based tunneling (Suricata 8)
+│   └── threshold.config                       ← Thresholds and suppressions, kept out of the rules
+├── datasets/
+│   ├── malicious-domains.txt                  ← IOC dataset (base64, per Suricata format)
+│   ├── pq-browser-ja4.txt                     ← Post-quantum browser JA4 allowlist
+│   └── offensive-ja4.txt                      ← Offensive-tooling fingerprints (empty by design)
+├── iprep/
+│   ├── categories.txt                         ← IP reputation categories
+│   └── reputation.list                        ← Reputation scores (RFC 5737 examples)
+├── scripts/
+│   ├── alert_summary.sh                       ← EVE JSON triage summary
+│   ├── alert_tail.sh                          ← Real-time high-severity monitor
+│   └── extract_iocs.sh                        ← IOC export to CSV
+└── docs/
+    ├── tuning-guide.md                        ← Per-rule false-positive analysis
+    └── known-limitations.md                   ← Engine findings and coverage gaps
+```
+
+</details>
+
+### Validating the ruleset
+
+The engine is the validator. From a clone:
+
+```bash
+sudo cp datasets/*.txt /var/lib/suricata/datasets/
+sudo mkdir -p /etc/suricata/iprep && sudo cp iprep/* /etc/suricata/iprep/
+cat rules/*.rules > /tmp/combined.rules
+
+suricata -T -S /tmp/combined.rules \
+  --set threshold-file="$PWD/rules/threshold.config" \
+  --set reputation-categories-file=/etc/suricata/iprep/categories.txt \
+  --set default-reputation-path=/etc/suricata/iprep \
+  --set reputation-files.0=reputation.list
+```
+
+On Suricata 7.x the modern rules report as skipped rather than failing — that is the `requires:` gating working as intended.
 
 ---
 
@@ -222,6 +307,9 @@ alert http $EXTERNAL_NET any -> $HOME_NET any (msg:"SQL Injection Attempt"; flow
 ---
 
 ## Part 3 - Writing Custom Detection Rules
+
+> **Rule conventions.** Every rule in this repository carries `reference:`, `classtype:`, `target:`, and structured `metadata:` with its MITRE ATT&CK technique — the fields ET Open uses and CI enforces. Thresholds are defined in [`rules/threshold.config`](rules/threshold.config), not inline, so tuning a noisy signature never risks breaking its match logic. The eight modern TLS and DNS rules live in separate files and are covered in [Part 7](#part-7---modern-tls-detections-ja4-ech-post-quantum).
+
 
 I write a series of custom detection rules targeting specific attack patterns. All custom rules go into `/etc/suricata/rules/local.rules` with SIDs starting at `1000000` (the local SID range).
 
@@ -686,6 +774,191 @@ This same EVE JSON output is what fed the `suricata` source type in the [Splunk 
 
 ---
 
+## Part 7 - Modern TLS Detections (JA4, ECH, Post-Quantum)
+
+The original ruleset predates three shifts in TLS that change what a NIDS can and cannot see. This section implements detections for all three — and is the production counterpart to work first prototyped at the packet level in the companion [Wireshark Threat Detection](https://github.com/jesse12-21/wireshark-threat-detection) project. Rules live in [`rules/modern-tls.rules`](rules/modern-tls.rules).
+
+### Version gating with `requires:`
+
+Every rule in this file is gated. This is not decoration — it is what makes the ruleset safe to deploy on a sensor you do not control.
+
+A bare `ja4.hash` rule on a Suricata build compiled without JA4 is a hard parse error, and a parse error takes the **entire ruleset** down with it, not just the offending rule. Adding `requires:` converts failure into a clean skip:
+
+```
+alert tls $HOME_NET any -> $EXTERNAL_NET any (msg:"..."; requires: feature ja4; ja4.hash; ...)
+alert dns $HOME_NET any -> any any (msg:"..."; requires: version >= 8.0; dns.query; entropy: value > 3.8; ...)
+```
+
+Verified against Suricata 7.0.3, which lacks both:
+
+```
+i: requires: 6 rules were skipped because the running Suricata version 7.0.3 is
+   less than 8.0.0; 2 rules were skipped because the running Suricata version
+   does not have features: [ja4]
+i: suricata: Configuration provided was successfully loaded. Exiting.
+```
+
+The full ruleset loads on a 7.x sensor without error. The modern detections simply do not arm. Details and the build-info evidence are in [`docs/known-limitations.md`](docs/known-limitations.md).
+
+### JA4 client fingerprinting
+
+Suricata's `ja4.hash` keyword fingerprints the TLS Client Hello, identifying the client's TLS stack independently of what it claims to be. SID 1000101 matches against a dataset of known offensive-tooling fingerprints.
+
+That dataset ships **empty on purpose**. A stale fingerprint blocklist is worse than no blocklist, because it creates the impression of coverage that does not exist. Populate it from the [FoxIO JA4+ database](https://ja4db.com) or your own intel.
+
+### Post-quantum capability as an inverted signal
+
+Hybrid post-quantum key agreement — `X25519MLKEM768`, IANA code point 4588 — is now default in mainstream browsers, while malware TLS stacks built on older statically linked OpenSSL cannot offer it. A client whose fingerprint claims a browser but which lacks post-quantum capability is presenting a contradiction, because the fingerprint is cosmetic and the cryptographic capability is not.
+
+An honest implementation note: **Suricata exposes no keyword for the supported_groups extension**, so this cannot be written as "offered group != 4588". SID 1000102 expresses it as an allowlist instead — JA4 hashes from known-good PQ-capable browsers go in `datasets/pq-browser-ja4.txt`, and a `t13d`-prefixed fingerprint absent from that list is flagged. That means the rule requires environment-specific baselining before it is useful, and the shipped dataset contains illustrative values only.
+
+### Encrypted Client Hello
+
+ECH encrypts the Server Name Indication, removing the most-used plaintext signal in TLS monitoring. Two rules address it.
+
+**SID 1000103** detects a Client Hello with no SNI at all, using the Suricata 8 `absent` keyword. Its severity is deliberately **Informational** rather than Major: under ECH a missing SNI no longer implies evasion, and GREASE ECH means ECH-shaped extensions appear on nearly every browser handshake. It is retained because it still catches implants connecting to a hardcoded IP with no ECH involvement, which remains common in commodity malware — but it is a weakening detection and is labelled as one.
+
+**SIDs 1000104 and 1000105** implement the replacement, using cross-flow correlation. A conforming ECH client must fetch the server's ECHConfig from a DNS HTTPS resource record (type 65, RFC 9460) before it can encrypt a ClientHelloInner. SID 1000104 records that lookup as an `xbits` flag against the source IP; SID 1000105 alerts on an ECH-fronted session where that flag was never set:
+
+```
+# Helper — records the DNS HTTPS-RR lookup, does not alert
+alert dns $HOME_NET any -> any any (msg:"..."; requires: version >= 8.0; dns.rrtype:65;
+  xbits:set,ech_config_fetched,track ip_src,expire 300; noalert; sid:1000104; rev:1;)
+
+# Detection — ECH session with no preceding lookup
+alert tls $HOME_NET any -> $EXTERNAL_NET any (msg:"..."; requires: version >= 8.0;
+  tls.sni; pcre:"/(cloudflare-ech\.com|ech\.local)$/i";
+  xbits:isnotset,ech_config_fetched,track ip_src; sid:1000105; rev:1;)
+```
+
+A client reaching an ECH provider without having fetched a config is operating from a hardcoded or out-of-band ECHConfig. No mainstream browser does this; an implant with an embedded config does exactly this.
+
+> **Stated limitations.** DoH and DoQ hide the HTTPS-RR lookup entirely, so this rule is blind on hosts using encrypted DNS. DNS caching can place the lookup outside the 300s xbit window. Both are documented in [`docs/tuning-guide.md`](docs/tuning-guide.md) rather than left for whoever deploys it to discover.
+
+### Entropy-based DNS tunneling
+
+SID 1000015 detects tunneling by query-label **length**. Length is a proxy for what actually distinguishes tunneled data from a hostname: randomness. Suricata 8's `entropy` keyword measures it directly, computing Shannon entropy on a 0–8 scale.
+
+| Content type | Typical entropy |
+|---|---|
+| English-like hostnames | 2.5 – 3.5 |
+| CDN / cloud generated hostnames | 3.5 – 4.2 |
+| Base32/base64 encoded payload | 4.2 – 5.0+ |
+
+The overlap between generated hostnames and encoded payloads is real. [`rules/dns-tunneling.rules`](rules/dns-tunneling.rules) sets defaults inside that overlap deliberately, favouring recall, on the assumption the operator will tune down against their own baseline. SID 1000015 is retained in `local.rules` for 7.x sensors.
+
+---
+
+## Part 8 - From IDS to IPS
+
+Everything so far runs Suricata in **IDS** mode: it observes a copy of the traffic and alerts. In **IPS** mode Suricata sits inline and can drop packets. The rule language barely changes; the operational risk changes completely.
+
+### Action semantics
+
+| Action | IDS mode | IPS mode |
+|---|---|---|
+| `alert` | Log the match | Log the match, forward the packet |
+| `drop` | Logged as if `alert` | Silently discard the packet, log the drop |
+| `reject` | Logged as if `alert` | Discard **and** send TCP RST / ICMP unreachable |
+| `pass` | Stop evaluating this packet | Stop evaluating, forward immediately |
+
+The critical asymmetry: **a false positive in IDS mode is noise; in IPS mode it is an outage.** A `drop` rule with a 1% false-positive rate on a link carrying a million sessions a day breaks ten thousand legitimate connections.
+
+### Inline deployment
+
+Suricata can run inline via NFQUEUE, or via af-packet with paired interfaces:
+
+```bash
+# NFQUEUE — kernel hands packets to Suricata for a verdict
+sudo iptables -I FORWARD -j NFQUEUE --queue-num 0
+sudo suricata -c /etc/suricata/suricata.yaml -q 0
+```
+
+```yaml
+# af-packet inline — traffic is bridged between two interfaces
+af-packet:
+  - interface: enp0s3
+    copy-mode: ips
+    copy-iface: enp0s8
+  - interface: enp0s8
+    copy-mode: ips
+    copy-iface: enp0s3
+```
+
+### Which rules would be safe to drop
+
+Applying the tuning discipline from [`docs/tuning-guide.md`](docs/tuning-guide.md) to this ruleset, only a minority are IPS candidates:
+
+| SID | Detection | Safe to `drop`? | Reasoning |
+|---|---|---|---|
+| 1000009 | LFI `/etc/passwd` | **Yes** | Very high precision; almost no legitimate traffic references it |
+| 1000007 | Reverse shell in body | **Yes** | Specific payload shape, very low FP rate |
+| 1000001 | SQL injection | **Cautiously** | Precise, but analytics tools occasionally match |
+| 1000101 | Offensive JA4 | **Cautiously** | Only once the fingerprint list is curated and current |
+| 1000005 | Scanner user-agent | **No** | Trivially spoofed; dropping teaches the attacker to change one header |
+| 1000006 | Low-reputation TLD | **No** | Informational signal, not a verdict |
+| 1000102 | JA4 not PQ-allowlisted | **No** | Allowlist-based; a browser update would break user traffic |
+| 1000103 | SNI absent | **No** | Weakening detection with rising legitimate matches |
+
+The general principle: **drop what you can prove, alert on what you infer.** Any rule whose logic contains a threshold, an allowlist, or a heuristic belongs in alert mode regardless of how good it looks.
+
+### Suricata 8 firewall mode
+
+Suricata 8 added an experimental **firewall mode** — a more formalized dialect of the rule language with a deterministic packet pipeline and a default-drop policy, rather than the default-pass model of IDS mode. It is explicitly experimental and subject to change during the 8.0 lifecycle, so this project does not deploy it. Noted because it signals the direction: Suricata is moving from a detection engine that can block toward a policy engine that can detect.
+
+---
+
+## Part 9 - Detection-as-Code
+
+Rules are code. They are versioned, reviewed, and tested — or they rot.
+
+### CI validation
+
+[`.github/workflows/validate-rules.yml`](.github/workflows/validate-rules.yml) runs on every push touching rules, datasets, or scripts:
+
+| Check | Purpose |
+|---|---|
+| **Suricata compilation** | Installs Suricata 8 from the OISF PPA and loads the full ruleset with `suricata -T`. The engine itself is the validator. |
+| Gated-rule reporting | Surfaces which rules were skipped, so a silently-inactive rule is visible rather than hidden |
+| SID uniqueness | A duplicate SID silently shadows a detection |
+| SID range | Enforces the local 1000000+ range so rules never collide with ET Open |
+| Required fields | Every rule must carry `msg`, `rev`, `classtype`, `reference`, `metadata`, `target`, and a MITRE technique ID |
+| ShellCheck | Script quality at warning severity |
+| Executable bit | Scripts stay runnable for anyone cloning |
+
+The Suricata compilation step is the one that matters. A schema check tells you a rule is well-formed; loading it into the engine tells you it will actually run on a sensor. This ruleset previously failed that check — see below.
+
+### What CI caught
+
+Compiling the previous ruleset against a real engine surfaced three problems that were invisible on inspection:
+
+- **The ruleset did not load at all.** SID 1000014 referenced a dataset file that was not in the repository. Suricata resolves `load` at parse time, so a missing dataset file does not skip one rule — it fails every rule in the file. Fifteen correct rules were being silently prevented from loading by one broken reference.
+- **`type string` datasets are base64-encoded and reject comments.** The obvious first attempt — plain-text domains with an explanatory header — is rejected outright.
+- **`iprep` rules will not parse without a reputation categories file.** The previous version had this rule commented out with a note incorrectly stating it used the datasets directory. It does not.
+
+All three are documented with reproductions in [`docs/known-limitations.md`](docs/known-limitations.md), along with the finding that the **Ubuntu-packaged Suricata is built without JA4 support** — which is why every JA4 rule here is gated with `requires:`.
+
+### Rule metadata as a contract
+
+Every rule carries structured metadata, matching the convention ET Open uses:
+
+```
+metadata:attack_target Web_Server, created_at 2026_03_15, updated_at 2026_07_29,
+  deployment Perimeter, signature_severity Major, mitre_tactic_id TA0001,
+  mitre_tactic_name Initial_Access, mitre_technique_id T1190,
+  mitre_technique_name Exploit_Public_Facing_Application;
+```
+
+This is not paperwork. `signature_severity` drives SIEM routing, `deployment` tells an operator where the rule belongs, the `mitre_*` fields let coverage be measured against ATT&CK automatically, and `created_at`/`updated_at` make rule age visible. CI enforces their presence, so a rule cannot merge without them.
+
+### Tuning as a first-class artifact
+
+Thresholds and suppressions live in [`rules/threshold.config`](rules/threshold.config), separate from the rules themselves. A rule file and a tuning file change for different reasons and on different schedules; keeping them apart means adjusting a noisy signature never risks breaking its match logic.
+
+[`docs/tuning-guide.md`](docs/tuning-guide.md) records the expected false-positive behaviour of every rule, a phased deployment schedule, and the two metrics — alert volume and disposition ratio — that indicate whether tuning is working or merely suppressing signal.
+
+---
+
 ## 🔑 Key Suricata Commands Reference
 
 | Command | Purpose |
@@ -706,7 +979,7 @@ This same EVE JSON output is what fed the `suricata` source type in the [Splunk 
 | Component | Version | Purpose |
 |---|---|---|
 | **Ubuntu** | 24.04 LTS | Host operating system (VirtualBox VM) |
-| **Suricata** | 8.0.4 | Network intrusion detection engine |
+| **Suricata** | 8.0.4 (lab) / 8.0.5 (CI) | Network intrusion detection engine. Lab screenshots were captured on 8.0.4; CI validates the ruleset against current stable from the OISF PPA. |
 | **ET Open Ruleset** | 49,494 enabled rules | Community-maintained detection rules |
 | **jq** | 1.7+ | JSON parsing for EVE log analysis |
 | **tcpdump** | Latest | Packet capture for PCAP generation |
@@ -715,18 +988,21 @@ This same EVE JSON output is what fed the `suricata` source type in the [Splunk 
 
 ## 📚 Summary
 
-This project demonstrates practical Network Intrusion Detection skills through six progressive exercises:
+This project demonstrates practical Network Intrusion Detection skills through nine progressive exercises:
 
-1. **Setup & Configuration** — Installed Suricata 8.0.4 on Ubuntu 24.04 from the OISF stable PPA, configured network interfaces and HOME_NET variables, and loaded 49,494 rules from the Emerging Threats Open ruleset
+1. **Setup & Configuration** — Installed Suricata 8.0.5 on Ubuntu 24.04 from the OISF stable PPA, configured network interfaces and HOME_NET variables, and loaded 49,494 rules from the Emerging Threats Open ruleset
 2. **Rule Anatomy** — Documented Suricata's rule syntax including actions, protocols, options, and modifiers — the foundation for writing effective detections
 3. **Custom Rules** — Wrote 16 custom detection rules covering SQL injection, XSS, path traversal, brute-force, scanner detection, suspicious DNS, reverse shells, and PowerShell downloads — all using SIDs in the local 1000000+ range
 4. **PCAP Analysis** — Generated attack traffic with `tcpdump` and `curl`, processed the resulting 139-packet PCAP through Suricata, and used `jq` to parse the EVE JSON output. Demonstrated successful **layered detection** where the custom rule `LOCAL Suspicious TLD DNS Query` (12 alerts) and ET Open community rules (6 alerts) detected the same malicious DNS activity
 5. **Threat Intelligence** — Built threat intel infrastructure with IP and domain blocklists at `/var/lib/suricata/datasets/`, demonstrating IOC-based detection alongside behavioral rules
 6. **Alert Automation** — Built three bash scripts for alert summarization, real-time tailing, and IOC extraction. The summary script processed 3,364 alerts in seconds, surfacing the top signatures, source IPs, and categories for immediate SOC triage
+7. **Modern TLS Detections** — Added eight rules covering JA4 client fingerprinting, Encrypted Client Hello (via cross-flow `xbits` correlation against DNS HTTPS-RR lookups), post-quantum capability mismatch, and entropy-based DNS tunneling — all version-gated with `requires:` so the ruleset loads cleanly on sensors lacking those features
+8. **IDS to IPS** — Documented inline deployment via NFQUEUE and af-packet, and assessed every rule for drop-safety on the principle that a false positive in IDS mode is noise but in IPS mode is an outage
+9. **Detection-as-Code** — Built a CI pipeline that compiles the ruleset with the Suricata engine itself on every push. It immediately surfaced that the previous ruleset **failed to load entirely** because one rule referenced a missing dataset file, along with two further engine-level findings documented in `docs/known-limitations.md`
 
 ### Skills Demonstrated
 
-`Network Intrusion Detection` · `Suricata Rule Writing` · `EVE JSON Analysis` · `PCAP Forensics` · `Threat Intelligence Integration` · `Bash Scripting` · `Linux Administration` · `SOC Operations` · `IOC Extraction` · `SIEM Integration`
+`Network Intrusion Detection` · `Suricata Rule Writing` · `Detection Engineering` · `Detection-as-Code` · `Rule Tuning & FP Analysis` · `MITRE ATT&CK` · `JA4 Fingerprinting` · `Encrypted Client Hello` · `Post-Quantum TLS` · `EVE JSON Analysis` · `PCAP Forensics` · `Threat Intelligence Integration` · `IPS Operations` · `CI/CD` · `Bash Scripting` · `Linux Administration` · `SOC Operations` · `IOC Extraction` · `SIEM Integration`
 
 ---
 

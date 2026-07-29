@@ -1,13 +1,26 @@
 # =====================================================================
-# Suricata Custom Detection Rules
+# Suricata Custom Detection Rules — local.rules
 # =====================================================================
 # Custom rules for the Suricata IDS portfolio project.
-# All rules use SIDs in the local range (1000000+) to avoid conflicts
-# with community rulesets.
 #
-# Place this file at: /etc/suricata/rules/local.rules
-# Reference it from /etc/suricata/suricata.yaml under rule-files:
-#   - /etc/suricata/rules/local.rules
+# Conventions used throughout this ruleset:
+#   - SIDs in the local range (1000000+) to avoid ruleset conflicts
+#   - Every rule carries metadata: with MITRE ATT&CK technique/tactic IDs,
+#     creation and update dates, deployment context, and severity
+#   - Every rule carries a reference: to the technique or CVE it detects
+#   - target: is set so downstream tooling can distinguish victim from
+#     attacker without parsing the rule header
+#   - Thresholds are defined in rules/threshold.config, not inline, so
+#     tuning does not require editing detection logic
+#
+# Validation:  suricata -T -S rules/local.rules
+# Tuning:      see docs/tuning-guide.md for per-rule false-positive analysis
+#
+# Install:
+#   sudo cp rules/*.rules /etc/suricata/rules/
+#   sudo cp datasets/*.txt /var/lib/suricata/datasets/
+#   sudo cp rules/threshold.config /etc/suricata/
+# Then reference the rule files from /etc/suricata/suricata.yaml.
 # =====================================================================
 
 
@@ -16,77 +29,107 @@
 # ---------------------------------------------------------------------
 
 # SID 1000001 — SQL Injection: UNION SELECT pattern
-alert http $EXTERNAL_NET any -> $HOME_NET any (msg:"LOCAL SQL Injection - UNION SELECT"; flow:established,to_server; http.uri; content:"UNION"; nocase; content:"SELECT"; nocase; distance:0; within:30; classtype:web-application-attack; sid:1000001; rev:1;)
+alert http $EXTERNAL_NET any -> $HOME_NET any (msg:"LOCAL SQL Injection - UNION SELECT"; flow:established,to_server; http.uri; content:"UNION"; nocase; content:"SELECT"; nocase; distance:0; within:30; reference:url,attack.mitre.org/techniques/T1190/; classtype:web-application-attack; target:dest_ip; metadata:attack_target Web_Server, created_at 2026_03_15, updated_at 2026_07_29, deployment Perimeter, signature_severity Major, mitre_tactic_id TA0001, mitre_tactic_name Initial_Access, mitre_technique_id T1190, mitre_technique_name Exploit_Public_Facing_Application; sid:1000001; rev:2;)
 
 # SID 1000002 — Path Traversal: multiple ../ sequences
-alert http $EXTERNAL_NET any -> $HOME_NET any (msg:"LOCAL Path Traversal Attempt"; flow:established,to_server; http.uri; pcre:"/(\.\.[\/\\]){2,}/"; classtype:web-application-attack; sid:1000002; rev:1;)
+alert http $EXTERNAL_NET any -> $HOME_NET any (msg:"LOCAL Path Traversal Attempt"; flow:established,to_server; http.uri; pcre:"/(\.\.[\/\\]){2,}/"; reference:url,attack.mitre.org/techniques/T1190/; classtype:web-application-attack; target:dest_ip; metadata:attack_target Web_Server, created_at 2026_03_15, updated_at 2026_07_29, deployment Perimeter, signature_severity Major, mitre_tactic_id TA0001, mitre_tactic_name Initial_Access, mitre_technique_id T1190, mitre_technique_name Exploit_Public_Facing_Application; sid:1000002; rev:2;)
 
 # SID 1000003 — XSS: <script tag in URI
-alert http $EXTERNAL_NET any -> $HOME_NET any (msg:"LOCAL XSS Attempt - Script Tag"; flow:established,to_server; http.uri; content:"<script"; nocase; classtype:web-application-attack; sid:1000003; rev:1;)
+alert http $EXTERNAL_NET any -> $HOME_NET any (msg:"LOCAL XSS Attempt - Script Tag in URI"; flow:established,to_server; http.uri; content:"<script"; nocase; reference:url,attack.mitre.org/techniques/T1190/; classtype:web-application-attack; target:dest_ip; metadata:attack_target Web_Server, created_at 2026_03_15, updated_at 2026_07_29, deployment Perimeter, signature_severity Minor, mitre_tactic_id TA0001, mitre_tactic_name Initial_Access, mitre_technique_id T1190, mitre_technique_name Exploit_Public_Facing_Application; sid:1000003; rev:2;)
 
 # SID 1000009 — Local File Inclusion: /etc/passwd
-alert http $EXTERNAL_NET any -> $HOME_NET any (msg:"LOCAL LFI Attempt - /etc/passwd"; flow:established,to_server; http.uri; content:"/etc/passwd"; nocase; classtype:web-application-attack; sid:1000009; rev:1;)
+alert http $EXTERNAL_NET any -> $HOME_NET any (msg:"LOCAL LFI Attempt - /etc/passwd"; flow:established,to_server; http.uri; content:"/etc/passwd"; nocase; reference:url,attack.mitre.org/techniques/T1083/; classtype:web-application-attack; target:dest_ip; metadata:attack_target Web_Server, created_at 2026_03_15, updated_at 2026_07_29, deployment Perimeter, signature_severity Major, mitre_tactic_id TA0007, mitre_tactic_name Discovery, mitre_technique_id T1083, mitre_technique_name File_And_Directory_Discovery; sid:1000009; rev:2;)
 
 
 # ---------------------------------------------------------------------
 # AUTHENTICATION ATTACKS
 # ---------------------------------------------------------------------
 
-# SID 1000004 — SSH Brute Force (5+ attempts in 60s)
-alert ssh $EXTERNAL_NET any -> $HOME_NET 22 (msg:"LOCAL SSH Brute Force Attempt"; flow:to_server; threshold: type both, track by_src, count 5, seconds 60; classtype:attempted-admin; sid:1000004; rev:1;)
+# SID 1000004 — SSH Brute Force
+# Threshold moved to rules/threshold.config (see docs/tuning-guide.md).
+alert ssh $EXTERNAL_NET any -> $HOME_NET 22 (msg:"LOCAL SSH Brute Force Attempt"; flow:to_server; reference:url,attack.mitre.org/techniques/T1110/001/; classtype:attempted-admin; target:dest_ip; metadata:attack_target SSH_Server, created_at 2026_03_15, updated_at 2026_07_29, deployment Perimeter, signature_severity Major, mitre_tactic_id TA0006, mitre_tactic_name Credential_Access, mitre_technique_id T1110_001, mitre_technique_name Brute_Force_Password_Guessing; sid:1000004; rev:2;)
 
 # SID 1000012 — HTTP Basic Auth Brute Force
-alert http $EXTERNAL_NET any -> $HOME_NET any (msg:"LOCAL HTTP Auth Brute Force"; flow:established,to_server; http.header; content:"Authorization|3a 20|Basic"; threshold: type both, track by_src, count 10, seconds 60; classtype:attempted-recon; sid:1000012; rev:1;)
+alert http $EXTERNAL_NET any -> $HOME_NET any (msg:"LOCAL HTTP Basic Auth Brute Force"; flow:established,to_server; http.header; content:"Authorization|3a 20|Basic"; reference:url,attack.mitre.org/techniques/T1110/001/; classtype:attempted-admin; target:dest_ip; metadata:attack_target Web_Server, created_at 2026_03_15, updated_at 2026_07_29, deployment Perimeter, signature_severity Major, mitre_tactic_id TA0006, mitre_tactic_name Credential_Access, mitre_technique_id T1110_001, mitre_technique_name Brute_Force_Password_Guessing; sid:1000012; rev:2;)
 
 
 # ---------------------------------------------------------------------
 # RECONNAISSANCE / SCANNING
 # ---------------------------------------------------------------------
 
-# SID 1000005 — Suspicious User-Agent (scanner tools)
-alert http $EXTERNAL_NET any -> $HOME_NET any (msg:"LOCAL Suspicious User-Agent - Scanner Tool"; flow:established,to_server; http.user_agent; pcre:"/(nikto|sqlmap|nmap|masscan|wpscan|gobuster|ffuf|burp)/i"; classtype:web-application-activity; sid:1000005; rev:1;)
+# SID 1000005 — Scanner tool User-Agent
+alert http $EXTERNAL_NET any -> $HOME_NET any (msg:"LOCAL Scanner Tool User-Agent"; flow:established,to_server; http.user_agent; pcre:"/(nikto|sqlmap|nmap|masscan|wpscan|gobuster|ffuf|feroxbuster|nuclei|burp)/i"; reference:url,attack.mitre.org/techniques/T1595/002/; classtype:web-application-activity; target:dest_ip; metadata:attack_target Web_Server, created_at 2026_03_15, updated_at 2026_07_29, deployment Perimeter, signature_severity Minor, mitre_tactic_id TA0043, mitre_tactic_name Reconnaissance, mitre_technique_id T1595_002, mitre_technique_name Active_Scanning_Vulnerability_Scanning; sid:1000005; rev:2;)
 
-# SID 1000013 — Excessive 404 Errors (web scanning indicator)
-alert http $HOME_NET any -> $EXTERNAL_NET any (msg:"LOCAL Excessive 404 Responses - Possible Scanning"; flow:established,to_client; http.stat_code; content:"404"; threshold: type both, track by_dst, count 20, seconds 60; classtype:attempted-recon; sid:1000013; rev:1;)
+# SID 1000013 — Excessive 404 responses (directory / wordlist scanning)
+# Server in HOME_NET responding to an external client; tracked by_dst so the
+# counter follows the external scanner, not the local server.
+alert http $HOME_NET any -> $EXTERNAL_NET any (msg:"LOCAL Excessive 404 Responses - Possible Wordlist Scanning"; flow:established,to_client; http.stat_code; content:"404"; reference:url,attack.mitre.org/techniques/T1595/003/; classtype:attempted-recon; target:src_ip; metadata:attack_target Web_Server, created_at 2026_03_15, updated_at 2026_07_29, deployment Perimeter, signature_severity Informational, mitre_tactic_id TA0043, mitre_tactic_name Reconnaissance, mitre_technique_id T1595_003, mitre_technique_name Active_Scanning_Wordlist_Scanning; sid:1000013; rev:2;)
 
 
 # ---------------------------------------------------------------------
 # DNS / C2 INDICATORS
 # ---------------------------------------------------------------------
 
-# SID 1000006 — DNS query to free/abused TLD
-alert dns $HOME_NET any -> any any (msg:"LOCAL Suspicious TLD DNS Query"; dns.query; pcre:"/\.(tk|ml|ga|cf|gq|top|xyz)$/i"; classtype:bad-unknown; sid:1000006; rev:1;)
+# SID 1000006 — DNS query to a low-reputation TLD
+# rev:2 tuning — .xyz and .top were removed. Both now carry millions of
+# legitimate registrations and were the dominant false-positive source for
+# this rule. Retained TLDs are the Freenom-era free registrations, which
+# have far lower legitimate volume. See docs/tuning-guide.md.
+alert dns $HOME_NET any -> any any (msg:"LOCAL DNS Query to Low-Reputation TLD"; dns.query; pcre:"/\.(tk|ml|ga|cf|gq)$/i"; reference:url,attack.mitre.org/techniques/T1071/004/; classtype:bad-unknown; target:src_ip; metadata:attack_target Client_Endpoint, created_at 2026_03_15, updated_at 2026_07_29, deployment Internal, signature_severity Informational, mitre_tactic_id TA0011, mitre_tactic_name Command_And_Control, mitre_technique_id T1071_004, mitre_technique_name Application_Layer_Protocol_DNS; sid:1000006; rev:2;)
 
-# SID 1000014 — DNS Query to Known Malicious Domain (uses dataset)
-alert dns $HOME_NET any -> any any (msg:"LOCAL DNS Query to Known Malicious Domain"; dns.query; dataset:isset,malicious_domains,type string,load malicious_domains.txt; classtype:trojan-activity; sid:1000014; rev:1;)
+# SID 1000014 — DNS query matching the malicious-domain dataset
+# rev:2 — the dataset file now ships with the repository at
+# datasets/malicious-domains.txt. In rev:1 this rule referenced a file that
+# did not exist, which caused `suricata -T` to fail on the whole ruleset.
+alert dns $HOME_NET any -> any any (msg:"LOCAL DNS Query to Known Malicious Domain"; dns.query; dataset:isset,malicious-domains,type string,load malicious-domains.txt; reference:url,attack.mitre.org/techniques/T1071/004/; classtype:trojan-activity; target:src_ip; metadata:attack_target Client_Endpoint, created_at 2026_03_15, updated_at 2026_07_29, deployment Internal, signature_severity Major, mitre_tactic_id TA0011, mitre_tactic_name Command_And_Control, mitre_technique_id T1071_004, mitre_technique_name Application_Layer_Protocol_DNS; sid:1000014; rev:2;)
 
-# SID 1000015 — Long DNS query (possible DNS tunneling)
-alert dns $HOME_NET any -> any any (msg:"LOCAL Possible DNS Tunneling - Long Query"; dns.query; pcre:"/^[a-zA-Z0-9]{50,}\./"; classtype:bad-unknown; sid:1000015; rev:1;)
+# SID 1000015 — Long DNS query label (possible tunneling)
+# Length-based heuristic. Suricata 8 offers a stronger entropy-based
+# detection for the same behaviour — see rules/dns-tunneling.rules.
+# This rule is retained for Suricata 7.x deployments.
+alert dns $HOME_NET any -> any any (msg:"LOCAL Possible DNS Tunneling - Long Query Label"; dns.query; pcre:"/^[a-zA-Z0-9]{50,}\./"; reference:url,attack.mitre.org/techniques/T1048/003/; classtype:bad-unknown; target:src_ip; metadata:attack_target Client_Endpoint, created_at 2026_03_15, updated_at 2026_07_29, deployment Internal, signature_severity Major, mitre_tactic_id TA0010, mitre_tactic_name Exfiltration, mitre_technique_id T1048_003, mitre_technique_name Exfiltration_Over_Unencrypted_Non_C2_Protocol; sid:1000015; rev:2;)
 
 
 # ---------------------------------------------------------------------
 # MALWARE / POST-EXPLOITATION
 # ---------------------------------------------------------------------
 
-# SID 1000007 — Reverse shell pattern: bash -i >&
-alert http $HOME_NET any -> $EXTERNAL_NET any (msg:"LOCAL Possible Reverse Shell - bash -i"; flow:established,to_server; content:"bash -i"; content:">&"; distance:0; within:50; classtype:trojan-activity; sid:1000007; rev:1;)
+# SID 1000007 — Reverse shell command in inbound request body
+# rev:2 correction — rev:1 inspected outbound traffic from HOME_NET with no
+# sticky buffer, matching raw payload in the wrong direction. A reverse-shell
+# one-liner arrives INBOUND as a command-injection payload; the shell session
+# itself is not HTTP. Now anchored to http.request_body on inbound traffic.
+alert http $EXTERNAL_NET any -> $HOME_NET any (msg:"LOCAL Reverse Shell Command in Request Body"; flow:established,to_server; http.request_body; content:"bash"; nocase; content:"-i"; distance:0; within:10; content:">&"; distance:0; within:30; reference:url,attack.mitre.org/techniques/T1059/004/; classtype:trojan-activity; target:dest_ip; metadata:attack_target Web_Server, created_at 2026_03_15, updated_at 2026_07_29, deployment Perimeter, signature_severity Critical, mitre_tactic_id TA0002, mitre_tactic_name Execution, mitre_technique_id T1059_004, mitre_technique_name Command_And_Scripting_Interpreter_Unix_Shell; sid:1000007; rev:2;)
 
-# SID 1000008 — PowerShell User-Agent (download cradle indicator)
-alert http $HOME_NET any -> $EXTERNAL_NET any (msg:"LOCAL PowerShell Remote Download"; flow:established,to_server; http.user_agent; content:"WindowsPowerShell"; nocase; classtype:trojan-activity; sid:1000008; rev:1;)
+# SID 1000008 — PowerShell download cradle User-Agent
+alert http $HOME_NET any -> $EXTERNAL_NET any (msg:"LOCAL PowerShell Download Cradle User-Agent"; flow:established,to_server; http.user_agent; content:"WindowsPowerShell"; nocase; reference:url,attack.mitre.org/techniques/T1059/001/; classtype:trojan-activity; target:src_ip; metadata:attack_target Client_Endpoint, created_at 2026_03_15, updated_at 2026_07_29, deployment Internal, signature_severity Major, mitre_tactic_id TA0002, mitre_tactic_name Execution, mitre_technique_id T1059_001, mitre_technique_name Command_And_Scripting_Interpreter_PowerShell; sid:1000008; rev:2;)
 
-# SID 1000016 — Curl/Wget download from external IP (potential malware staging)
-alert http $HOME_NET any -> $EXTERNAL_NET any (msg:"LOCAL CLI Tool Download from External - Possible Staging"; flow:established,to_server; http.user_agent; pcre:"/(curl|wget)\//i"; classtype:policy-violation; sid:1000016; rev:1;)
+# SID 1000016 — CLI downloader fetching an executable from a raw IP
+# rev:2 tuning — rev:1 alerted on any curl/wget User-Agent, which fires on
+# every apt update, CI job, and container pull. It was the highest-volume
+# false positive in the ruleset. Now requires BOTH a CLI user agent AND a
+# Host header that is a bare IPv4 address (no domain), which is the pattern
+# actually associated with malware staging.
+alert http $HOME_NET any -> $EXTERNAL_NET any (msg:"LOCAL CLI Downloader to Raw IP Host - Possible Staging"; flow:established,to_server; http.user_agent; pcre:"/^(curl|Wget)\//"; http.host; pcre:"/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}(:\d+)?$/"; reference:url,attack.mitre.org/techniques/T1105/; classtype:policy-violation; target:src_ip; metadata:attack_target Client_Endpoint, created_at 2026_03_15, updated_at 2026_07_29, deployment Internal, signature_severity Minor, mitre_tactic_id TA0011, mitre_tactic_name Command_And_Control, mitre_technique_id T1105, mitre_technique_name Ingress_Tool_Transfer; sid:1000016; rev:2;)
 
 
 # ---------------------------------------------------------------------
 # THREAT INTELLIGENCE / IOC MATCHING
 # ---------------------------------------------------------------------
 
-# SID 1000010 — Connection to/from known malicious IP (uses dataset)
-# Requires malicious_ips.txt in /var/lib/suricata/datasets/
-# alert ip $EXTERNAL_NET any -> $HOME_NET any (msg:"LOCAL Connection from Known Malicious IP"; iprep:src,malicious,>,50; classtype:bad-unknown; sid:1000010; rev:1;)
+# SID 1000010 — Traffic involving an IP with a bad reputation score
+# rev:2 correction — rev:1 was commented out and its note incorrectly stated
+# that iprep reads from the datasets directory. It does not. iprep uses
+# reputation files declared under `reputation-categories-file` and
+# `default-reputation-path` in suricata.yaml, in a separate CSV format:
+#   <ip>,<category-id>,<reputation-score>
+# The rule is now enabled and gated on Suricata's iprep support being
+# configured; see docs/tuning-guide.md for the required yaml stanza.
+alert ip $EXTERNAL_NET any -> $HOME_NET any (msg:"LOCAL Inbound Traffic from Low-Reputation IP"; iprep:src,BadHosts,>,50; reference:url,attack.mitre.org/techniques/T1071/; classtype:bad-unknown; target:dest_ip; metadata:attack_target Any, created_at 2026_03_15, updated_at 2026_07_29, deployment Perimeter, signature_severity Minor, mitre_tactic_id TA0011, mitre_tactic_name Command_And_Control, mitre_technique_id T1071, mitre_technique_name Application_Layer_Protocol; sid:1000010; rev:2;)
 
 
 # =====================================================================
 # End of local.rules
+# Modern TLS detections (JA4, ECH, post-quantum):  rules/modern-tls.rules
+# Entropy-based DNS tunneling detection:           rules/dns-tunneling.rules
 # =====================================================================

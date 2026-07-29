@@ -1,0 +1,127 @@
+name: Validate Rules
+
+# Detection-as-code. Every rule is compiled by the actual Suricata engine on
+# push, so a rule that would fail to load on a sensor cannot reach main.
+on:
+  push:
+    branches: [main]
+    paths: ['rules/**', 'datasets/**', 'iprep/**', 'scripts/**', '.github/workflows/validate-rules.yml']
+  pull_request:
+    paths: ['rules/**', 'datasets/**', 'iprep/**', 'scripts/**']
+  workflow_dispatch:
+
+jobs:
+  suricata:
+    name: Suricata rule compilation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Suricata 8 from OISF stable PPA
+        run: |
+          # The Ubuntu-packaged Suricata is 7.0.x and is built WITHOUT JA4
+          # support, so the OISF PPA is required to exercise the JA4 and
+          # Suricata 8 rules rather than have them silently skipped.
+          # See docs/known-limitations.md.
+          sudo add-apt-repository -y ppa:oisf/suricata-stable
+          sudo apt-get update -qq
+          sudo apt-get install -y suricata
+          suricata -V
+
+      - name: Stage datasets and reputation files
+        run: |
+          # Rules reference these by filename; Suricata resolves them
+          # relative to the dataset and reputation paths.
+          sudo mkdir -p /var/lib/suricata/datasets /etc/suricata/iprep
+          sudo cp datasets/*.txt /var/lib/suricata/datasets/
+          sudo cp iprep/*  /etc/suricata/iprep/
+          # offensive-ja4.txt ships empty by design; create if absent so the
+          # rule referencing it can load.
+          sudo touch /var/lib/suricata/datasets/offensive-ja4.txt
+
+      - name: Compile ruleset
+        run: |
+          cat rules/local.rules rules/modern-tls.rules rules/dns-tunneling.rules > /tmp/combined.rules
+          sudo suricata -T -S /tmp/combined.rules \
+            --set threshold-file="$PWD/rules/threshold.config" \
+            --set reputation-categories-file=/etc/suricata/iprep/categories.txt \
+            --set default-reputation-path=/etc/suricata/iprep \
+            --set reputation-files.0=reputation.list \
+            --set datasets.defaults.memcap=32mb \
+            -l /tmp 2>&1 | tee /tmp/out.txt
+          if grep -qiE '^E:|error' /tmp/out.txt; then
+            echo "::error::Suricata reported errors loading the ruleset"
+            exit 1
+          fi
+
+      - name: Report gated rules
+        run: |
+          # Rules gated with `requires:` are skipped rather than failing.
+          # Surfaced here so a silently-skipped rule is visible, not hidden.
+          grep -i 'skipped' /tmp/out.txt || echo "No rules skipped — all features present."
+
+  ruleset-hygiene:
+    name: Ruleset hygiene
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: SID uniqueness
+        run: |
+          ids=$(grep -ho 'sid:[0-9]*' rules/*.rules | sort)
+          dupes=$(echo "$ids" | uniq -d)
+          if [ -n "$dupes" ]; then
+            echo "::error::Duplicate SIDs: $dupes"; exit 1
+          fi
+          echo "$(echo "$ids" | wc -l) SIDs, all unique."
+
+      - name: SID range
+        run: |
+          # Local rules must stay in the 1000000+ range to avoid colliding
+          # with ET Open and other community rulesets.
+          bad=$(grep -ho 'sid:[0-9]*' rules/*.rules | cut -d: -f2 | awk '$1 < 1000000')
+          if [ -n "$bad" ]; then
+            echo "::error::SIDs below the local range (1000000+): $bad"; exit 1
+          fi
+          echo "All SIDs within the local range."
+
+      - name: Required rule fields
+        run: |
+          # Every alert rule must carry msg, sid, rev, classtype, reference,
+          # metadata and target. Their absence is what distinguishes lab
+          # rules from production ones.
+          fail=0
+          grep -h '^alert' rules/*.rules | grep -v 'noalert' > /tmp/alerts.txt
+          while IFS= read -r rule; do
+            sid=$(echo "$rule" | grep -o 'sid:[0-9]*')
+            for field in 'msg:' 'rev:' 'classtype:' 'reference:' 'metadata:' 'target:'; do
+              case "$rule" in
+                *"$field"*) ;;
+                *) echo "::error::$sid missing $field"; fail=1 ;;
+              esac
+            done
+            case "$rule" in
+              *mitre_technique_id*) ;;
+              *) echo "::error::$sid missing mitre_technique_id in metadata"; fail=1 ;;
+            esac
+          done < /tmp/alerts.txt
+          [ "$fail" -eq 0 ] && echo "All $(wc -l < /tmp/alerts.txt) rules carry required fields."
+          exit $fail
+
+  scripts:
+    name: Shell scripts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - run: sudo apt-get update -qq && sudo apt-get install -y shellcheck
+      - name: Syntax
+        run: for f in scripts/*.sh; do bash -n "$f" && echo "  ok $f"; done
+      - name: ShellCheck
+        run: shellcheck --severity=warning scripts/*.sh
+      - name: Executable bit
+        run: |
+          fail=0
+          for f in scripts/*.sh; do
+            [ -x "$f" ] || { echo "::error::$f not executable"; fail=1; }
+          done
+          exit $fail

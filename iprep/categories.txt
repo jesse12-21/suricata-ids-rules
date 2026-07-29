@@ -1,0 +1,3 @@
+1,BadHosts,Known bad hosts
+2,Scanners,Hosts observed performing active scanning
+3,C2,Confirmed command-and-control infrastructure
